@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MOTION: AI Fitness Trainer</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- MediaPipe Pose & Camera Utils CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+  <!-- Canvas Confetti CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased selection:bg-indigo-500 selection:text-white">
+
+  <!-- Header / Navigation -->
+  <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur-md fixed top-0 w-full z-40">
+    <div class="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center font-black text-xl text-white shadow-lg shadow-indigo-500/30">M</div>
+        <div>
+          <h1 class="font-bold text-lg leading-none bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">MOTION</h1>
+          <p class="text-xs text-indigo-400 font-medium">AI Fitness Coach</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <button id="bgMusicToggleBtn" class="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800/80 text-xs font-semibold text-slate-300 hover:bg-slate-700 transition flex items-center gap-2">
+          <span>🎵 Музыка:</span> <span id="bgMusicStateText" class="text-rose-400">ВЫКЛ</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Workspace -->
+  <main class="max-w-7xl mx-auto px-4 pt-20 pb-8 grid grid-cols-1 lg:grid-cols-12 gap-6">
+    
+    <!-- Left Column: Camera / Canvas Viewport -->
+    <section class="lg:col-span-8 flex flex-col gap-4">
+      <div class="relative w-full aspect-video bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden shadow-2xl group">
+        <!-- Hidden raw video element -->
+        <video id="webcam" class="hidden" playsinline></video>
+        
+        <!-- Render Canvas -->
+        <canvas id="outputCanvas" class="w-full h-full object-cover transform -scale-x-100"></canvas>
+        
+        <!-- Overlay HUD Top Bar -->
+        <div class="absolute top-4 left-4 right-4 flex items-center justify-between pointer-events-none">
+          <div class="bg-slate-900/90 backdrop-blur-md border border-slate-700/80 px-4 py-2 rounded-xl flex items-center gap-3">
+            <span class="relative flex h-3 w-3">
+              <span id="statusPing" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span id="statusDot" class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+            </span>
+            <span id="statusText" class="text-xs font-bold tracking-wider text-slate-200">КАМЕРА ГОТОВА</span>
+          </div>
+
+          <!-- Selected Exercise Badge -->
+          <div class="bg-indigo-600/90 backdrop-blur-md px-4 py-2 rounded-xl text-xs font-bold text-white shadow-lg">
+            Упражнение: <span id="currentExLabel">Приседания</span>
+          </div>
+        </div>
+
+        <!-- ERROR MODE Banner Overlay -->
+        <div id="errorBanner" class="hidden absolute top-16 left-4 right-4 bg-rose-600/95 text-white p-4 rounded-xl shadow-2xl border border-rose-400 flex items-center gap-4 animate-bounce">
+          <div class="text-3xl">⚠️</div>
+          <div>
+            <h4 class="font-extrabold text-sm uppercase tracking-wider">ОШИБКА ТЕХНИКИ (ERROR MODE)</h4>
+            <p id="errorMessage" class="text-xs font-medium text-rose-100">Держите спину ровнее при опускании!</p>
+          </div>
+        </div>
+
+        <!-- Countdown Overlay -->
+        <div id="countdownOverlay" class="hidden absolute inset-0 bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center z-30">
+          <span class="text-indigo-400 font-bold uppercase tracking-widest text-sm mb-2">Приготовьтесь</span>
+          <span id="countdownNumber" class="text-8xl font-black text-white animate-ping">3</span>
+        </div>
+
+        <!-- Completion Modal -->
+        <div id="completionOverlay" class="hidden absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center z-30 p-6 text-center">
+          <div class="text-5xl mb-3">🎉</div>
+          <h3 class="text-2xl font-extrabold text-white mb-1">Тренировка Завершена!</h3>
+          <p class="text-sm text-slate-400 mb-6">Отличный результат, все повторения засчитаны.</p>
+          <div class="bg-slate-800/80 border border-slate-700 rounded-xl p-4 w-full max-w-xs mb-6 flex justify-around">
+            <div>
+              <div class="text-xs text-slate-400">Повторы</div>
+              <div id="finalReps" class="text-2xl font-bold text-indigo-400">0</div>
+            </div>
+            <div>
+              <div class="text-xs text-slate-400">Калории</div>
+              <div id="finalKcal" class="text-2xl font-bold text-emerald-400">0 kcal</div>
+            </div>
+          </div>
+          <button id="restartBtn" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-6 py-2.5 rounded-xl transition shadow-lg shadow-indigo-500/25">
+            Начать заново
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right Column: Control Panel & Stats -->
+    <section class="lg:col-span-4 flex flex-col gap-4">
+      
+      <!-- Counter Card -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 relative overflow-hidden">
+        <div class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Счетчик повторений</div>
+        <div class="flex items-baseline gap-3">
+          <span id="repCounter" class="text-6xl font-black text-white tracking-tight">0</span>
+          <span id="targetRepsLabel" class="text-slate-500 font-bold text-lg">/ 10</span>
+        </div>
+        <div class="w-full bg-slate-800 rounded-full h-2.5 mt-4 overflow-hidden">
+          <div id="progressBar" class="bg-gradient-to-r from-indigo-500 to-emerald-400 h-2.5 rounded-full transition-all duration-300 w-0"></div>
+        </div>
+      </div>
+
+      <!-- Exercise Selector (3 Mandatory Movements) -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+        <h3 class="text-sm font-bold text-slate-300 uppercase tracking-wider mb-3">Выберите упражнение</h3>
+        <div class="grid grid-cols-1 gap-2.5">
+          
+          <button data-exercise="squat" class="ex-select-btn active-ex flex items-center justify-between p-3.5 rounded-xl border border-indigo-500/50 bg-indigo-500/10 text-left transition">
+            <div>
+              <div class="font-bold text-sm text-white">1. Приседания (Squats)</div>
+              <div class="text-xs text-slate-400">Сгибание колен с ровной спиной</div>
+            </div>
+            <div class="text-xs font-bold text-indigo-400 bg-indigo-950 px-2 py-1 rounded-md">Ноги</div>
+          </button>
+
+          <button data-exercise="jumping_jacks" class="ex-select-btn flex items-center justify-between p-3.5 rounded-xl border border-slate-800 bg-slate-800/40 text-left hover:border-slate-700 transition">
+            <div>
+              <div class="font-bold text-sm text-white">2. Прыжки Jacks (Jumping Jacks)</div>
+              <div class="text-xs text-slate-400">Подъем рук и разведка ног</div>
+            </div>
+            <div class="text-xs font-bold text-purple-400 bg-purple-950 px-2 py-1 rounded-md">Кардио</div>
+          </button>
+
+          <button data-exercise="arm_raises" class="ex-select-btn flex items-center justify-between p-3.5 rounded-xl border border-slate-800 bg-slate-800/40 text-left hover:border-slate-700 transition">
+            <div>
+              <div class="font-bold text-sm text-white">3. Подъем рук (Arms Overhead)</div>
+              <div class="text-xs text-slate-400">Полный подъем рук выше головы</div>
+            </div>
+            <div class="text-xs font-bold text-emerald-400 bg-emerald-950 px-2 py-1 rounded-md">Плечи</div>
+          </button>
+
+        </div>
+      </div>
+
+      <!-- Live Session Telemetry -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 grid grid-cols-2 gap-4">
+        <div>
+          <span class="text-xs font-medium text-slate-400 block mb-1">Время</span>
+          <span id="timerText" class="text-xl font-bold text-slate-200">00:00</span>
+        </div>
+        <div>
+          <span class="text-xs font-medium text-slate-400 block mb-1">Ошибок зафиксировано</span>
+          <span id="errorCounter" class="text-xl font-bold text-rose-400">0</span>
+        </div>
+      </div>
+
+      <!-- Start Control Button -->
+      <button id="startWorkoutBtn" class="w-full py-4 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-extrabold text-base shadow-xl shadow-indigo-500/25 transition transform active:scale-95">
+        НАЧАТЬ ТРЕНИРОВКУ
+      </button>
+
+    </section>
+  </main>
+
+  <script src="audio.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
+/* Glassmorphism & Custom Canvas Styling */
+.ex-select-btn.active-ex {
+  border-color: rgba(99, 102, 241, 0.8);
+  background-color: rgba(99, 102, 241, 0.15);
+}
+
+canvas {
+  filter: contrast(1.05) brightness(1.02);
+}
+
+@keyframes flashSuccess {
+  0% { opacity: 0.8; background-color: rgba(16, 185, 129, 0.3); }
+  100% { opacity: 0; background-color: transparent; }
+}
+
+.flash-effect {
+  animation: flashSuccess 0.5s ease-out forwards;
+}
+// Web Audio API Engine - Синтез звуков без необходимости загрузки внешних mp3 файлов
+class SoundEngine {
+  constructor() {
+    this.ctx = null;
+    this.bgMusicInterval = null;
+    this.isBgMusicPlaying = false;
+  }
+
+  init() {
+    if (!this.ctx) {
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (this.ctx.state === 'suspended') {
+      this.ctx.resume();
+    }
+  }
+
+  playBeep(freq = 440, type = 'sine', duration = 0.15) {
+    this.init();
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.15, this.ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start();
+    osc.stop(this.ctx.currentTime + duration);
+  }
+
+  playCountdownBeep() {
+    this.playBeep(600, 'sine', 0.1);
+  }
+
+  playStartBeep() {
+    this.playBeep(900, 'triangle', 0.3);
+  }
+
+  playRepSuccess() {
+    this.init();
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(523.25, now); // C5
+    osc.frequency.exponentialRampToValueAtTime(659.25, now + 0.15); // E5
+    gain.gain.setValueAtTime(0.2, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start();
+    osc.stop(now + 0.2);
+  }
+
+  playErrorSound() {
+    this.init();
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(150, now);
+    osc.frequency.setValueAtTime(110, now + 0.1);
+    gain.gain.setValueAtTime(0.25, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start();
+    osc.stop(now + 0.3);
+  }
+
+  playFanfare() {
+    this.init();
+    const notes = [523.25, 659.25, 783.99, 1046.50];
+    notes.forEach((freq, idx) => {
+      setTimeout(() => this.playBeep(freq, 'triangle', 0.25), idx * 120);
+    });
+  }
+
+  toggleBgMusic(enable) {
+    this.init();
+    this.isBgMusicPlaying = enable;
+    if (!enable) {
+      if (this.bgMusicInterval) clearInterval(this.bgMusicInterval);
+      return;
+    }
+    let step = 0;
+    const synthNotes = [130.81, 164.81, 196.00, 220.00];
+    this.bgMusicInterval = setInterval(() => {
+      if (!this.isBgMusicPlaying) return;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = synthNotes[step % synthNotes.length];
+      gain.gain.setValueAtTime(0.03, this.ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.4);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start();
+      osc.stop(this.ctx.currentTime + 0.4);
+      step++;
+    }, 500);
+  }
+}
+
+const audioEngine = new SoundEngine();
+// State Management
+const state = {
+  activeExercise: 'squat', // 'squat' | 'jumping_jacks' | 'arm_raises'
+  reps: 0,
+  targetReps: 10,
+  errorCount: 0,
+  isWorkoutActive: false,
+  stage: 'up', // 'up' | 'down'
+  isError: false,
+  timerSeconds: 0,
+  timerInterval: null
+};
+
+// Elements
+const videoElement = document.getElementById('webcam');
+const canvasElement = document.getElementById('outputCanvas');
+const canvasCtx = canvasElement.getContext('2d');
+const repCounterEl = document.getElementById('repCounter');
+const progressBarEl = document.getElementById('progressBar');
+const errorBannerEl = document.getElementById('errorBanner');
+const errorMessageEl = document.getElementById('errorMessage');
+const startBtn = document.getElementById('startWorkoutBtn');
+const countdownOverlay = document.getElementById('countdownOverlay');
+const countdownNumberEl = document.getElementById('countdownNumber');
+const bgMusicBtn = document.getElementById('bgMusicToggleBtn');
+const bgMusicStateText = document.getElementById('bgMusicStateText');
+
+// Angle Calculation Utility
+function calculateAngle(a, b, c) {
+  const radians = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
+  let angle = Math.abs((radians * 180.0) / Math.PI);
+  if (angle > 180.0) angle = 360 - angle;
+  return angle;
+}
+
+// Mobile Vibration
+function triggerVibration() {
+  if ('vibrate' in navigator) {
+    navigator.vibrate(200);
+  }
+}
+
+// MediaPipe Pose Handlers
+function onPoseResults(results) {
+  canvasElement.width = videoElement.videoWidth || 640;
+  canvasElement.height = videoElement.videoHeight || 480;
+
+  canvasCtx.save();
+  canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+  canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+  if (results.poseLandmarks) {
+    drawKeypointsAndSkeleton(results.poseLandmarks);
+    if (state.isWorkoutActive) {
+      processExerciseLogic(results.poseLandmarks);
+    }
+  }
+  canvasCtx.restore();
+}
+
+// Draw Skeleton
+function drawKeypointsAndSkeleton(landmarks) {
+  const connections = [
+    [11, 12], [11, 13], [13, 15], [12, 14], [14, 16], // Upper body
+    [11, 23], [12, 24], [23, 24],                    // Torso
+    [23, 25], [25, 27], [24, 26], [26, 28]           // Lower body
+  ];
+
+  // Draw Lines
+  connections.forEach(([i, j]) => {
+    const pt1 = landmarks[i];
+    const pt2 = landmarks[j];
+    if (pt1 && pt2 && pt1.visibility > 0.5 && pt2.visibility > 0.5) {
+      canvasCtx.beginPath();
+      canvasCtx.moveTo(pt1.x * canvasElement.width, pt1.y * canvasElement.height);
+      canvasCtx.lineTo(pt2.x * canvasElement.width, pt2.y * canvasElement.height);
+      canvasCtx.lineWidth = 4;
+      canvasCtx.strokeStyle = state.isError ? '#f43f5e' : '#6366f1';
+      canvasCtx.stroke();
+    }
+  });
+
+  // Draw Joint Points
+  landmarks.forEach((pt) => {
+    if (pt.visibility > 0.5) {
+      canvasCtx.beginPath();
+      canvasCtx.arc(pt.x * canvasElement.width, pt.y * canvasElement.height, 6, 0, 2 * Math.PI);
+      canvasCtx.fillStyle = state.isError ? '#e11d48' : '#10b981';
+      canvasCtx.fill();
+      canvasCtx.lineWidth = 2;
+      canvasCtx.strokeStyle = '#ffffff';
+      canvasCtx.stroke();
+    }
+  });
+}
+
+// Core Exercise & ERROR MODE Logic
+function processExerciseLogic(landmarks) {
+  const hip = landmarks[24];
+  const knee = landmarks[26];
+  const ankle = landmarks[28];
+  const shoulder = landmarks[12];
+  const elbow = landmarks[14];
+  const wrist = landmarks[16];
+
+  let currentAngle = 0;
+
+  if (state.activeExercise === 'squat') {
+    currentAngle = calculateAngle(hip, knee, ankle);
+    const backAngle = calculateAngle(shoulder, hip, knee);
+
+    // ERROR MODE Check: Excessive forward lean (Back angle too low)
+    if (currentAngle < 140 && backAngle < 75) {
+      setErrorMode(true, 'Держите спину ровно! Не наклоняйтесь слишком сильно вперед.');
+    } else {
+      setErrorMode(false);
+    }
+
+    // Rep Counting Logic
+    if (currentAngle < 90 && state.stage === 'up') {
+      state.stage = 'down';
+    }
+    if (currentAngle > 160 && state.stage === 'down' && !state.isError) {
+      registerRepetition();
+    }
+
+  } else if (state.activeExercise === 'jumping_jacks') {
+    const armAngle = calculateAngle(hip, shoulder, wrist);
+    const ankleDistance = Math.abs(landmarks[27].x - landmarks[28].x);
+
+    // ERROR MODE Check: Asymmetric arm movement or insufficient leg spread
+    if (armAngle > 120 && ankleDistance < 0.15) {
+      setErrorMode(true, 'Прыгайте шире! Разводите ноги при подъеме рук.');
+    } else {
+      setErrorMode(false);
+    }
+
+    if (armAngle > 150 && state.stage === 'up') {
+      state.stage = 'down';
+    }
+    if (armAngle < 40 && state.stage === 'down' && !state.isError) {
+      registerRepetition();
+    }
+
+  } else if (state.activeExercise === 'arm_raises') {
+    const armAngle = calculateAngle(hip, shoulder, wrist);
+
+    // ERROR MODE Check: Bent elbows during overhead raise
+    const elbowAngle = calculateAngle(shoulder, elbow, wrist);
+    if (armAngle > 120 && elbowAngle < 130) {
+      setErrorMode(true, 'Выпрямите руки в локтях при подъеме!');
+    } else {
+      setErrorMode(false);
+    }
+
+    if (armAngle > 160 && state.stage === 'up') {
+      state.stage = 'down';
+    }
+    if (armAngle < 30 && state.stage === 'down' && !state.isError) {
+      registerRepetition();
+    }
+  }
+}
+
+// Error Mode Trigger
+function setErrorMode(isError, message = '') {
+  if (state.isError === isError) return;
+  state.isError = isError;
+
+  if (isError) {
+    state.errorCount++;
+    document.getElementById('errorCounter').innerText = state.errorCount;
+    errorMessageEl.innerText = message;
+    errorBannerEl.classList.remove('hidden');
+    audioEngine.playErrorSound();
+    triggerVibration();
+  } else {
+    errorBannerEl.classList.add('hidden');
+  }
+}
+
+// Register Repetition
+function registerRepetition() {
+  state.stage = 'up';
+  state.reps++;
+  repCounterEl.innerText = state.reps;
+  
+  // Progress Bar update
+  const pct = Math.min((state.reps / state.targetReps) * 100, 100);
+  progressBarEl.style.width = `${pct}%`;
+
+  audioEngine.playRepSuccess();
+
+  // Completion Check
+  if (state.reps >= state.targetReps) {
+    completeWorkout();
+  }
+}
+
+// Workout Countdown & Start
+function startWorkout() {
+  audioEngine.init();
+  state.reps = 0;
+  state.errorCount = 0;
+  state.timerSeconds = 0;
+  repCounterEl.innerText = '0';
+  document.getElementById('errorCounter').innerText = '0';
+  progressBarEl.style.width = '0%';
+  
+  countdownOverlay.classList.remove('hidden');
+  let count = 3;
+  countdownNumberEl.innerText = count;
+  audioEngine.playCountdownBeep();
+
+  const countInterval = setInterval(() => {
+    count--;
+    if (count > 0) {
+      countdownNumberEl.innerText = count;
+      audioEngine.playCountdownBeep();
+    } else {
+      clearInterval(countInterval);
+      countdownOverlay.classList.add('hidden');
+      state.isWorkoutActive = true;
+      audioEngine.playStartBeep();
+      startTimer();
+    }
+  }, 1000);
+}
+
+// Timer
+function startTimer() {
+  if (state.timerInterval) clearInterval(state.timerInterval);
+  state.timerInterval = setInterval(() => {
+    state.timerSeconds++;
+    const mins = String(Math.floor(state.timerSeconds / 60)).padStart(2, '0');
+    const secs = String(state.timerSeconds % 60).padStart(2, '0');
+    document.getElementById('timerText').innerText = `${mins}:${secs}`;
+  }, 1000);
+}
+
+// Finish Workout
+function completeWorkout() {
+  state.isWorkoutActive = false;
+  clearInterval(state.timerInterval);
+  audioEngine.playFanfare();
+
+  if (window.confetti) {
+    confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+  }
+
+  document.getElementById('finalReps').innerText = state.reps;
+  document.getElementById('finalKcal').innerText = `${Math.round(state.reps * 0.45)} kcal`;
+  document.getElementById('completionOverlay').classList.remove('hidden');
+}
+
+// Initialize Camera
+const pose = new Pose({
+  locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+});
+
+pose.setOptions({
+  modelComplexity: 1,
+  smoothLandmarks: true,
+  minDetectionConfidence: 0.5,
+  minTrackingConfidence: 0.5
+});
+
+pose.onResults(onPoseResults);
+
+const camera = new Camera(videoElement, {
+  onFrame: async () => {
+    await pose.send({ image: videoElement });
+  },
+  width: 640,
+  height: 480
+});
+
+camera.start();
+
+// Event Listeners
+startBtn.addEventListener('click', startWorkout);
+
+document.querySelectorAll('.ex-select-btn').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    document.querySelectorAll('.ex-select-btn').forEach(b => b.classList.remove('active-ex'));
+    const target = e.currentTarget;
+    target.classList.add('active-ex');
+    state.activeExercise = target.dataset.exercise;
+    document.getElementById('currentExLabel').innerText = target.querySelector('.font-bold').innerText;
+  });
+});
+
+bgMusicBtn.addEventListener('click', () => {
+  const isPlaying = !audioEngine.isBgMusicPlaying;
+  audioEngine.toggleBgMusic(isPlaying);
+  bgMusicStateText.innerText = isPlaying ? 'ВКЛ' : 'ВЫКЛ';
+  bgMusicStateText.className = isPlaying ? 'text-emerald-400' : 'text-rose-400';
+});
+
+document.getElementById('restartBtn').addEventListener('click', () => {
+  document.getElementById('completionOverlay').classList.add('hidden');
+  startWorkout();
+});
